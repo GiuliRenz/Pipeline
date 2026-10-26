@@ -22,3 +22,10 @@ models:
     marts:
       +schema: marts
       +materialized: table
+      # Usuario de solo lectura de Metabase (ver sql/init_metabase.sql).
+      # dbt recrea las tablas en cada build: así el permiso de lectura se vuelve a aplicar siempre
+      +grants:
+        select: ["metabase_reader"]
+
+on-run-end:
+  - "grant usage on schema marts to metabase_reader"

@@ -10,8 +10,34 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - ./sql/init_db.sql:/docker-entrypoint-initdb.d/init_db.sql
+      - ./sql/init_db.sql:/docker-entrypoint-initdb.d/01_init_db.sql
+      - ./sql/init_metabase.sql:/docker-entrypoint-initdb.d/02_init_metabase.sql
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d weather_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  metabase:
+    image: metabase/metabase:v0.64.3.4
+    container_name: metabase
+    restart: unless-stopped
+    # Metabase necesita su base interna disponible antes de arrancar
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_HOST: postgres
+      MB_DB_PORT: 5432
+      MB_DB_DBNAME: metabase
+      MB_DB_USER: metabase
+      MB_DB_PASS: metabase_password
+      JAVA_TIMEZONE: America/Argentina/Buenos_Aires
+      MB_ANON_TRACKING_ENABLED: "false"
+    ports:
+      - "3000:3000"
 
 volumes:
   postgres_data:

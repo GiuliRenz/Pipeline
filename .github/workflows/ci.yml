@@ -49,7 +49,9 @@ jobs:
       - name: Instalar dependencias
         run: uv sync --locked
       - name: Crear esquema de la base de datos
-        run: psql -h localhost -U postgres -d weather_db -v ON_ERROR_STOP=1 -f sql/init_db.sql
+        run: |
+          psql -h localhost -U postgres -d weather_db -v ON_ERROR_STOP=1 -f sql/init_db.sql
+          psql -h localhost -U postgres -d weather_db -v ON_ERROR_STOP=1 -f sql/init_metabase.sql
         env:
           PGPASSWORD: postgres_password
       - name: Ejecutar tests

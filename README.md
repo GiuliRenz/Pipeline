@@ -2,7 +2,9 @@
 
 ![CI](https://github.com/GiuliRenz/Pipeline/actions/workflows/ci.yml/badge.svg)
 
-Pipeline de datos meteorológicos de punta a punta: extrae datos horarios de la API pública de [Open-Meteo](https://open-meteo.com/) (histórico observado y pronóstico), los valida contra un contrato de datos, los carga en PostgreSQL y los transforma con **dbt** en un modelo analítico listo para consumir.
+Pipeline de datos meteorológicos de punta a punta: extrae datos horarios de la API pública de [Open-Meteo](https://open-meteo.com/) (histórico observado y pronóstico), los valida contra un contrato de datos, los carga en PostgreSQL y los transforma con **dbt** en un modelo analítico listo para consumir, visualizado en **Metabase**.
+
+![Dashboard de Metabase](docs/dashboard.png)
 
 ## Arquitectura
 
@@ -73,13 +75,21 @@ order by streak_length_days desc
 limit 5;
 ```
 
+## Dashboard (Metabase)
+
+Metabase se levanta junto con PostgreSQL en `docker compose` y lee **solo** el schema `marts`:
+
+- Se conecta con el usuario `metabase_reader`, de solo lectura ([`sql/init_metabase.sql`](sql/init_metabase.sql)). dbt le otorga `SELECT` sobre los modelos de `marts` en cada build (config `grants`), por lo que no puede ver las tablas crudas ni las capas intermedias.
+- Metabase guarda sus propios metadatos (usuarios, preguntas, dashboards) en una base `metabase` separada de los datos.
+- Las consultas SQL del dashboard están versionadas en [`dashboards/metabase_queries.sql`](dashboards/metabase_queries.sql).
+
 ## Ejecución
 
 Requisitos: Docker y [uv](https://docs.astral.sh/uv/).
 
 ```bash
 cp .env.example .env
-docker compose up -d                  # PostgreSQL + esquema inicial
+docker compose up -d                  # PostgreSQL + esquema inicial + Metabase (localhost:3000)
 uv sync                               # dependencias (incluye dbt)
 
 uv run python main.py --backfill      # carga inicial: 2 años de histórico
