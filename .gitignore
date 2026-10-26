@@ -1,0 +1,13 @@
+# Entorno y credenciales
+.venv/
+.env
+
+# Caches
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+
+# Datos generados por el pipeline (se regeneran ejecutándolo)
+data/raw/
+data/processed/
+data/quarantine/

@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Instalar dependencias
+        run: uv sync --locked
+      - name: Lint
+        run: uv run ruff check .
+      - name: Formato
+        run: uv run ruff format --check .
+
+  test:
+    name: Tests (pytest + PostgreSQL)
+    runs-on: ubuntu-latest
+    services:
+      # Base de datos efímera para los tests de integración de la capa de carga
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres_password
+          POSTGRES_DB: weather_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DB_HOST: localhost
+      DB_PORT: 5432
+      DB_NAME: weather_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres_password
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Instalar dependencias
+        run: uv sync --locked
+      - name: Crear esquema de la base de datos
+        run: psql -h localhost -U postgres -d weather_db -v ON_ERROR_STOP=1 -f sql/init_db.sql
+        env:
+          PGPASSWORD: postgres_password
+      - name: Ejecutar tests
+        run: uv run pytest -v
