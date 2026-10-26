@@ -1,3 +1,4 @@
+from datetime import date, timedelta
 from unittest.mock import patch
 
 import pytest
@@ -37,3 +38,34 @@ def test_pipeline_continues_and_reports_failure(pipeline_mocks, raw_weather):
     assert main.run_pipeline() is False
     # La segunda ciudad se procesa igual aunque la primera haya fallado
     assert load.call_count == 1
+
+
+def test_backfill_uses_archive_api(pipeline_mocks, raw_weather):
+    _, load = pipeline_mocks
+    period = (date(2024, 1, 1), date(2024, 12, 31))
+
+    with patch("main.fetch_historical_weather", return_value=raw_weather) as fetch_hist:
+        assert main.run_pipeline(export_csv=False, backfill=period) is True
+
+    fetch_hist.assert_any_call(-34.6, -58.4, *period)
+    loaded = load.call_args.kwargs["records"]
+    assert {r["data_source"] for r in loaded} == {"archive"}
+
+
+def test_parse_args_backfill_defaults():
+    args = main.parse_args(["--backfill"])
+
+    assert args.end_date == date.today() - timedelta(days=main.ARCHIVE_DELAY_DAYS)
+    assert (args.end_date - args.start_date).days == main.DEFAULT_BACKFILL_DAYS
+
+
+@pytest.mark.parametrize(
+    "argv",
+    [
+        ["--backfill", "--start-date", "2025-02-01", "--end-date", "2025-01-01"],
+        ["--start-date", "2025-01-01"],
+    ],
+)
+def test_parse_args_rejects_invalid_combinations(argv):
+    with pytest.raises(SystemExit):
+        main.parse_args(argv)

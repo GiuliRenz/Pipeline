@@ -54,3 +54,6 @@ jobs:
           PGPASSWORD: postgres_password
       - name: Ejecutar tests
         run: uv run pytest -v
+      - name: dbt build (modelos + tests de datos + tests unitarios)
+        working-directory: analytics
+        run: uv run dbt build

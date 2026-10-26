@@ -1,0 +1,24 @@
+name: weather_analytics
+version: "1.0.0"
+profile: weather_analytics
+
+model-paths: ["models"]
+test-paths: ["tests"]
+macro-paths: ["macros"]
+clean-targets: ["target", "dbt_packages", "logs"]
+
+vars:
+  # Umbral estándar de la OMM para considerar un "día con lluvia"
+  rainy_day_threshold_mm: 1.0
+
+models:
+  weather_analytics:
+    staging:
+      +schema: staging
+      +materialized: view
+    intermediate:
+      +schema: intermediate
+      +materialized: view
+    marts:
+      +schema: marts
+      +materialized: table

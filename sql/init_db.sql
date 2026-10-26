@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS fact_weather_hourly (
     relative_humidity_pct INT,
     precipitation_mm DECIMAL(5, 2),
     wind_speed_kmh DECIMAL(5, 2),
+    -- 'archive' = dato observado (Archive API), 'forecast' = pronóstico (Forecast API)
+    data_source VARCHAR(10) NOT NULL DEFAULT 'forecast',
     created_at TIMESTAMP WITHOUT TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     -- Evita duplicar mediciones si el ETL se ejecuta varias veces
     CONSTRAINT unique_location_datetime UNIQUE (location_id, datetime_utc),
@@ -25,7 +27,8 @@ CREATE TABLE IF NOT EXISTS fact_weather_hourly (
     CONSTRAINT chk_temperature CHECK (temperature_celsius BETWEEN -90 AND 60),
     CONSTRAINT chk_humidity CHECK (relative_humidity_pct BETWEEN 0 AND 100),
     CONSTRAINT chk_precipitation CHECK (precipitation_mm BETWEEN 0 AND 500),
-    CONSTRAINT chk_wind_speed CHECK (wind_speed_kmh BETWEEN 0 AND 400)
+    CONSTRAINT chk_wind_speed CHECK (wind_speed_kmh BETWEEN 0 AND 400),
+    CONSTRAINT chk_data_source CHECK (data_source IN ('forecast', 'archive'))
 );
 
 -- 3. Inserción inicial de ciudades para monitorear

@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -19,6 +20,7 @@ class WeatherRecord(BaseModel):
     relative_humidity_pct: int | None = Field(default=None, ge=0, le=100)
     precipitation_mm: float | None = Field(default=None, ge=0, le=500)
     wind_speed_kmh: float | None = Field(default=None, ge=0, le=400)
+    data_source: Literal["forecast", "archive"]
 
     @model_validator(mode="after")
     def at_least_one_measure(self) -> "WeatherRecord":

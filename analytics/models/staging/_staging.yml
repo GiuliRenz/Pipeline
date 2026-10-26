@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: stg_weather__locations
+    description: Ciudades monitoreadas, 1:1 con la fuente.
+    columns:
+      - name: location_id
+        data_tests:
+          - unique
+          - not_null
+      - name: timezone
+        description: Zona horaria IANA, usada para calcular el día local.
+        data_tests:
+          - not_null
+
+  - name: stg_weather__hourly
+    description: Mediciones horarias en UTC, 1:1 con la fuente.
+    columns:
+      - name: location_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('stg_weather__locations')
+                field: location_id
+      - name: datetime_utc
+        data_tests:
+          - not_null
+      - name: is_forecast
+        description: True si el dato es un pronóstico y aún no fue reemplazado por el observado.

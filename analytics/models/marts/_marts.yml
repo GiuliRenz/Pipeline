@@ -1,0 +1,82 @@
+version: 2
+
+models:
+  - name: dim_locations
+    description: Dimensión de ciudades monitoreadas.
+    columns:
+      - name: location_id
+        data_tests:
+          - unique
+          - not_null
+
+  - name: fct_weather_daily
+    description: >
+      Métricas diarias por ciudad, agregadas sobre el día local de cada ciudad.
+      Incluye la variación de temperatura respecto al día anterior.
+    columns:
+      - name: location_day_id
+        description: Clave única (location_id-fecha).
+        data_tests:
+          - unique
+          - not_null
+      - name: location_id
+        data_tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_locations')
+                field: location_id
+      - name: temp_avg_change_c
+        description: Diferencia de temperatura media contra el día calendario anterior (nula si falta ese día).
+      - name: is_rainy_day
+        description: Precipitación total >= var('rainy_day_threshold_mm').
+      - name: is_complete_day
+        description: True si el día tiene las 24 mediciones horarias.
+      - name: includes_forecast
+        description: True si alguna hora del día es pronóstico y no dato observado.
+
+  - name: fct_rain_streaks
+    description: Una fila por cada racha de días consecutivos con lluvia.
+    columns:
+      - name: streak_id
+        data_tests:
+          - unique
+          - not_null
+      - name: streak_length_days
+        data_tests:
+          - not_null
+
+unit_tests:
+  - name: test_temp_change_only_against_previous_calendar_day
+    description: La variación se calcula contra el día anterior y queda nula si hay un hueco.
+    model: fct_weather_daily
+    given:
+      - input: ref('int_weather__hourly_local')
+        rows:
+          - { location_id: 1, city_name: "A", date_local: "2026-01-01", temperature_celsius: 20 }
+          - { location_id: 1, city_name: "A", date_local: "2026-01-02", temperature_celsius: 23 }
+          - { location_id: 1, city_name: "A", date_local: "2026-01-04", temperature_celsius: 18 }
+          - { location_id: 2, city_name: "B", date_local: "2026-01-02", temperature_celsius: 10 }
+    expect:
+      rows:
+        - { location_id: 1, date_local: "2026-01-01", temp_avg_change_c: null }
+        - { location_id: 1, date_local: "2026-01-02", temp_avg_change_c: "3.00" }
+        - { location_id: 1, date_local: "2026-01-04", temp_avg_change_c: null }
+        - { location_id: 2, date_local: "2026-01-02", temp_avg_change_c: null }
+
+  - name: test_rain_streaks_split_on_dry_days
+    description: Días lluviosos consecutivos forman una racha; un día seco la corta.
+    model: fct_rain_streaks
+    given:
+      - input: ref('fct_weather_daily')
+        rows:
+          - { location_id: 1, city_name: "A", date_local: "2026-01-01", is_rainy_day: true, precipitation_total_mm: 2 }
+          - { location_id: 1, city_name: "A", date_local: "2026-01-02", is_rainy_day: true, precipitation_total_mm: 5 }
+          - { location_id: 1, city_name: "A", date_local: "2026-01-03", is_rainy_day: false, precipitation_total_mm: 0 }
+          - { location_id: 1, city_name: "A", date_local: "2026-01-04", is_rainy_day: true, precipitation_total_mm: 1 }
+          - { location_id: 2, city_name: "B", date_local: "2026-01-02", is_rainy_day: true, precipitation_total_mm: 3 }
+    expect:
+      rows:
+        - { location_id: 1, streak_start_date: "2026-01-01", streak_end_date: "2026-01-02", streak_length_days: 2, precipitation_total_mm: "7.00" }
+        - { location_id: 1, streak_start_date: "2026-01-04", streak_end_date: "2026-01-04", streak_length_days: 1, precipitation_total_mm: "1.00" }
+        - { location_id: 2, streak_start_date: "2026-01-02", streak_end_date: "2026-01-02", streak_length_days: 1, precipitation_total_mm: "3.00" }

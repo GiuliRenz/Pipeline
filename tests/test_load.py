@@ -36,7 +36,7 @@ def location_id(db_conn):
     db_conn.commit()
 
 
-def _record(location_id: int, temperature: float) -> dict:
+def _record(location_id: int, temperature: float, data_source: str = "forecast") -> dict:
     return {
         "location_id": location_id,
         "datetime_utc": TEST_DATETIME,
@@ -44,13 +44,14 @@ def _record(location_id: int, temperature: float) -> dict:
         "relative_humidity_pct": 60,
         "precipitation_mm": 0.0,
         "wind_speed_kmh": 10.0,
+        "data_source": data_source,
     }
 
 
 def _fetch_rows(db_conn, location_id: int) -> list[tuple]:
     with db_conn.cursor() as cur:
         cur.execute(
-            "SELECT temperature_celsius FROM fact_weather_hourly "
+            "SELECT temperature_celsius, data_source FROM fact_weather_hourly "
             "WHERE location_id = %s AND datetime_utc = %s;",
             (location_id, TEST_DATETIME),
         )
@@ -66,3 +67,23 @@ def test_load_is_idempotent_and_upserts(db_conn, location_id):
     # Re-ejecutar el ETL no duplica filas: actualiza la existente
     assert len(rows) == 1
     assert float(rows[0][0]) == 12.5
+
+
+def test_forecast_never_overwrites_observed_data(db_conn, location_id):
+    load_weather_data([_record(location_id, 10.0, data_source="archive")])
+    load_weather_data([_record(location_id, 25.0, data_source="forecast")])
+
+    rows = _fetch_rows(db_conn, location_id)
+
+    assert float(rows[0][0]) == 10.0
+    assert rows[0][1] == "archive"
+
+
+def test_observed_data_replaces_forecast(db_conn, location_id):
+    load_weather_data([_record(location_id, 25.0, data_source="forecast")])
+    load_weather_data([_record(location_id, 10.0, data_source="archive")])
+
+    rows = _fetch_rows(db_conn, location_id)
+
+    assert float(rows[0][0]) == 10.0
+    assert rows[0][1] == "archive"

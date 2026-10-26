@@ -45,14 +45,19 @@ def load_weather_data(records: list[dict]):
             temperature_celsius,
             relative_humidity_pct,
             precipitation_mm,
-            wind_speed_kmh
+            wind_speed_kmh,
+            data_source
         )
         VALUES %s
         ON CONFLICT (location_id, datetime_utc) DO UPDATE SET
             temperature_celsius = EXCLUDED.temperature_celsius,
             relative_humidity_pct = EXCLUDED.relative_humidity_pct,
             precipitation_mm = EXCLUDED.precipitation_mm,
-            wind_speed_kmh = EXCLUDED.wind_speed_kmh;
+            wind_speed_kmh = EXCLUDED.wind_speed_kmh,
+            data_source = EXCLUDED.data_source
+        -- Un dato observado nunca se reemplaza por un pronóstico
+        WHERE fact_weather_hourly.data_source = 'forecast'
+           OR EXCLUDED.data_source = 'archive';
     """
 
     # Preparamos las tuplas en el orden exacto del query
@@ -64,6 +69,7 @@ def load_weather_data(records: list[dict]):
             r["relative_humidity_pct"],
             r["precipitation_mm"],
             r["wind_speed_kmh"],
+            r["data_source"],
         )
         for r in records
     ]

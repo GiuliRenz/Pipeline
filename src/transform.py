@@ -53,10 +53,15 @@ def _validate_structure(raw_data: dict) -> dict:
     return hourly
 
 
-def transform_weather_data(raw_data: dict, location_id: int) -> tuple[list[dict], list[dict]]:
+def transform_weather_data(
+    raw_data: dict, location_id: int, data_source: str = "forecast"
+) -> tuple[list[dict], list[dict]]:
     """
     Toma el diccionario JSON en crudo de Open-Meteo, desanida las listas paralelas
     de 'hourly' y valida cada registro contra WeatherRecord.
+
+    data_source indica el origen del lote: 'forecast' (pronóstico)
+    o 'archive' (histórico observado).
 
     Devuelve (registros_validos, registros_rechazados). Los rechazados incluyen
     el detalle de los errores para poder guardarlos en cuarentena.
@@ -67,7 +72,11 @@ def transform_weather_data(raw_data: dict, location_id: int) -> tuple[list[dict]
     rejected_records = []
 
     for i, timestamp in enumerate(hourly["time"]):
-        candidate = {"location_id": location_id, "datetime_utc": timestamp}
+        candidate = {
+            "location_id": location_id,
+            "datetime_utc": timestamp,
+            "data_source": data_source,
+        }
         for api_field, column in HOURLY_FIELDS.items():
             candidate[column] = hourly[api_field][i]
 

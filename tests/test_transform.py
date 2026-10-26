@@ -29,7 +29,14 @@ def test_valid_payload_produces_one_record_per_hour(raw_weather):
         "relative_humidity_pct": 71,
         "precipitation_mm": 0.0,
         "wind_speed_kmh": 18.5,
+        "data_source": "forecast",
     }
+
+
+def test_data_source_is_propagated(raw_weather):
+    valid, _ = transform_weather_data(raw_weather, LOCATION_ID, data_source="archive")
+
+    assert {r["data_source"] for r in valid} == {"archive"}
 
 
 def test_empty_lists_return_no_records(raw_weather):

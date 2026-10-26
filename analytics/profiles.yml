@@ -1,0 +1,14 @@
+# Las credenciales se leen de las mismas variables de entorno que usa el pipeline en Python.
+# Los valores por defecto coinciden con docker-compose.yml.
+weather_analytics:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('DB_HOST', 'localhost') }}"
+      port: "{{ env_var('DB_PORT', '5432') | int }}"
+      user: "{{ env_var('DB_USER', 'postgres') }}"
+      password: "{{ env_var('DB_PASSWORD', 'postgres_password') }}"
+      dbname: "{{ env_var('DB_NAME', 'weather_db') }}"
+      schema: analytics
+      threads: 4

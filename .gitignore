@@ -11,3 +11,10 @@ __pycache__/
 data/raw/
 data/processed/
 data/quarantine/
+
+# Artefactos de dbt
+analytics/target/
+analytics/logs/
+analytics/dbt_packages/
+analytics/.user.yml
+logs/

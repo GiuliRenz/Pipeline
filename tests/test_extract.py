@@ -1,10 +1,17 @@
 import json
+from datetime import date
 from unittest.mock import MagicMock, patch
 
 import pytest
 import requests
 
-from src.extract import BASE_URL, fetch_raw_weather, save_raw_json
+from src.extract import (
+    ARCHIVE_URL,
+    FORECAST_URL,
+    fetch_historical_weather,
+    fetch_raw_weather,
+    save_raw_json,
+)
 
 
 def _mock_response(payload: dict | None = None, status_error: Exception | None = None):
@@ -23,9 +30,23 @@ def test_fetch_returns_api_payload(mock_get, raw_weather):
 
     assert data == raw_weather
     args, kwargs = mock_get.call_args
-    assert args[0] == BASE_URL
+    assert args[0] == FORECAST_URL
     assert kwargs["params"]["timezone"] == "UTC"
+    assert kwargs["params"]["past_days"] == 7
     assert kwargs["timeout"] == 10
+
+
+@patch("src.extract.requests.get")
+def test_fetch_historical_requests_date_range(mock_get, raw_weather):
+    mock_get.return_value = _mock_response(raw_weather)
+
+    fetch_historical_weather(-38.7, -62.3, date(2024, 1, 1), date(2024, 12, 31))
+
+    args, kwargs = mock_get.call_args
+    assert args[0] == ARCHIVE_URL
+    assert kwargs["params"]["start_date"] == "2024-01-01"
+    assert kwargs["params"]["end_date"] == "2024-12-31"
+    assert kwargs["params"]["timezone"] == "UTC"
 
 
 @patch("src.extract.requests.get")
@@ -47,7 +68,9 @@ def test_fetch_raises_on_timeout(mock_get):
 
 
 def test_save_raw_json_normalizes_accents(raw_weather, tmp_path):
-    path = save_raw_json(raw_weather, "Bahía Blanca", output_dir=str(tmp_path))
+    path = save_raw_json(
+        raw_weather, "Bahía Blanca", output_dir=str(tmp_path), data_source="archive"
+    )
 
-    assert path.name == "bahia_blanca_raw.json"
+    assert path.name == "bahia_blanca_archive_raw.json"
     assert json.loads(path.read_text(encoding="utf-8")) == raw_weather
