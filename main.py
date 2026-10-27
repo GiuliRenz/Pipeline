@@ -39,6 +39,40 @@ def get_locations() -> list[dict]:
     ]
 
 
+def process_city(
+    loc: dict, export_csv: bool = True, backfill: tuple[date, date] | None = None
+) -> int:
+    """
+    Ejecuta extract → transform → load para una ciudad y devuelve los registros cargados.
+    Lanza una excepción si algo falla; la usan tanto run_pipeline como el DAG de Airflow,
+    donde cada ciudad es una tarea independiente con sus propios reintentos.
+    """
+    data_source = "archive" if backfill else "forecast"
+    city_name = loc["city_name"]
+    logger.info(f"--- Procesando: {city_name} (ID: {loc['location_id']}) ---")
+
+    # 1. EXTRACT
+    if backfill:
+        raw_data = fetch_historical_weather(loc["latitude"], loc["longitude"], *backfill)
+    else:
+        raw_data = fetch_raw_weather(latitude=loc["latitude"], longitude=loc["longitude"])
+    save_raw_json(data=raw_data, city_name=city_name, data_source=data_source)
+
+    # 2. TRANSFORM + VALIDACIÓN
+    clean_records, rejected_records = transform_weather_data(
+        raw_data=raw_data, location_id=loc["location_id"], data_source=data_source
+    )
+    save_quarantine(records=rejected_records, city_name=city_name)
+
+    # Exportación opcional a CSV
+    if export_csv:
+        save_clean_csv(records=clean_records, city_name=city_name)
+
+    # 3. LOAD
+    load_weather_data(records=clean_records)
+    return len(clean_records)
+
+
 def run_pipeline(export_csv: bool = True, backfill: tuple[date, date] | None = None) -> bool:
     """
     Ejecuta el flujo ETL completo. Si export_csv es True, guarda además un CSV en data/processed/
@@ -52,34 +86,9 @@ def run_pipeline(export_csv: bool = True, backfill: tuple[date, date] | None = N
     failed_cities = []
 
     for loc in locations:
-        city_id = loc["location_id"]
         city_name = loc["city_name"]
-        lat = loc["latitude"]
-        lon = loc["longitude"]
-
-        logger.info(f"--- Procesando: {city_name} (ID: {city_id}) ---")
-
         try:
-            # 1. EXTRACT
-            if backfill:
-                raw_data = fetch_historical_weather(lat, lon, *backfill)
-            else:
-                raw_data = fetch_raw_weather(latitude=lat, longitude=lon)
-            save_raw_json(data=raw_data, city_name=city_name, data_source=data_source)
-
-            # 2. TRANSFORM + VALIDACIÓN
-            clean_records, rejected_records = transform_weather_data(
-                raw_data=raw_data, location_id=city_id, data_source=data_source
-            )
-            save_quarantine(records=rejected_records, city_name=city_name)
-
-            # Exportación opcional a CSV
-            if export_csv:
-                save_clean_csv(records=clean_records, city_name=city_name)
-
-            # 3. LOAD
-            load_weather_data(records=clean_records)
-
+            process_city(loc, export_csv=export_csv, backfill=backfill)
         except Exception as e:
             logger.error(f"Falló el procesamiento para {city_name}: {e}")
             failed_cities.append(city_name)

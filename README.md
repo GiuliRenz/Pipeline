@@ -2,7 +2,7 @@
 
 ![CI](https://github.com/GiuliRenz/Pipeline/actions/workflows/ci.yml/badge.svg)
 
-Pipeline de datos meteorológicos de punta a punta: extrae datos horarios de la API pública de [Open-Meteo](https://open-meteo.com/) (histórico observado y pronóstico), los valida contra un contrato de datos, los carga en PostgreSQL y los transforma con **dbt** en un modelo analítico listo para consumir, visualizado en **Metabase**.
+Pipeline de datos meteorológicos de punta a punta: extrae datos horarios de la API pública de [Open-Meteo](https://open-meteo.com/) (histórico observado y pronóstico), los valida contra un contrato de datos, los carga en PostgreSQL y los transforma con **dbt** en un modelo analítico listo para consumir, visualizado en **Metabase**. Todo se ejecuta a diario orquestado con **Airflow**, con reintentos y alertas por Telegram.
 
 ![Dashboard de Metabase](docs/dashboard.png)
 
@@ -10,6 +10,8 @@ Pipeline de datos meteorológicos de punta a punta: extrae datos horarios de la 
 
 ```mermaid
 flowchart LR
+    AF{{Airflow<br/>diario 06:00}} -.->|orquesta| E
+    AF -.-> STG
     subgraph Python ETL
         API[Open-Meteo<br/>Forecast + Archive API] -->|JSON| E[extract.py]
         E -->|respaldo crudo| RAW[(data/raw)]
@@ -21,6 +23,8 @@ flowchart LR
     subgraph dbt
         SRC --> STG[staging] --> INT[intermediate] --> MARTS[(marts<br/>fct_weather_daily<br/>fct_rain_streaks)]
     end
+    MARTS --> MB[Metabase]
+    MARTS --> TG[Alertas<br/>Telegram]
 ```
 
 | Capa | Responsabilidad |
@@ -29,6 +33,32 @@ flowchart LR
 | **Transform** | Desanida las listas paralelas de `hourly` y valida cada fila con Pydantic. |
 | **Load** | Bulk upsert con `execute_values` + `ON CONFLICT`: el pipeline es **idempotente**. |
 | **dbt** | Convierte las mediciones horarias en métricas diarias y rachas de lluvia (capa gold). |
+| **Airflow** | Ejecuta todo a diario, reintenta lo que falla y avisa por Telegram. |
+
+## Orquestación (Airflow)
+
+El DAG [`weather_pipeline`](airflow/dags/weather_pipeline.py) corre todos los días a las 06:00 (hora de Argentina):
+
+```
+list_locations → ingest_city × N ciudades → dbt_build → check_weather_alerts
+```
+
+- **Una tarea por ciudad** (*dynamic task mapping*): las ciudades se procesan en paralelo y, si la API falla para una, Airflow reintenta solo esa (2 reintentos, cada 5 minutos). Agregar una ciudad a `dim_locations` agrega una tarea sin tocar el DAG.
+- **dbt_build** ejecuta primero `dbt source freshness`: si la ingesta no cargó datos nuevos, falla antes de reconstruir los modelos. Si alguna ciudad falló, dbt no se ejecuta y el dashboard no muestra datos a medio cargar.
+- **check_weather_alerts** lee los próximos 3 días de `fct_weather_daily` y avisa por Telegram de lluvia intensa (≥ 20 mm), calor (≥ 35 °C) o heladas (≤ 0 °C).
+- **Alertas de fallo**: si una tarea agota sus reintentos, se envía un mensaje por Telegram.
+- La lógica vive en `main.py` y `src/`; el DAG solo la orquesta. Por eso el pipeline se puede ejecutar y testear sin Airflow.
+- CI construye la imagen de Airflow y verifica que el DAG carga sin errores.
+
+<details>
+<summary>Configurar las alertas de Telegram (opcional)</summary>
+
+1. En Telegram, habla con [@BotFather](https://t.me/BotFather), envía `/newbot` y copia el token.
+2. Envía cualquier mensaje a tu bot y abre `https://api.telegram.org/bot<TOKEN>/getUpdates` para ver tu `chat.id`.
+3. Agrega `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID` a `.env` y reinicia Airflow: `docker compose up -d airflow`.
+
+Sin estas variables, las alertas solo se registran en los logs.
+</details>
 
 ## Datos observados vs. pronóstico
 
@@ -89,11 +119,11 @@ Requisitos: Docker y [uv](https://docs.astral.sh/uv/).
 
 ```bash
 cp .env.example .env
-docker compose up -d                  # PostgreSQL + esquema inicial + Metabase (localhost:3000)
+docker compose up -d                  # PostgreSQL, Metabase (localhost:3000) y Airflow (localhost:8080)
 uv sync                               # dependencias (incluye dbt)
 
 uv run python main.py --backfill      # carga inicial: 2 años de histórico
-uv run python main.py                 # pronóstico (ejecución diaria)
+uv run python main.py                 # pronóstico (Airflow lo ejecuta a diario)
 
 cd analytics
 uv run dbt build                      # modelos + tests
@@ -112,17 +142,21 @@ uv run ruff check . && uv run ruff format --check .
 
 - **Unitarios**: la API se simula con `unittest.mock` y un JSON sintético ([fixture](tests/fixtures/open_meteo_sample.json)); cubren valores fuera de rango, nulos, fechas mal formadas, campos renombrados y listas vacías.
 - **Integración**: verifican contra un PostgreSQL real que la carga sea idempotente y que un pronóstico no pise un dato observado (se omiten si no hay base disponible).
-- **GitHub Actions** ejecuta en cada push a `main`: lint, tests de Python y `dbt build`, con un PostgreSQL efímero como *service container*.
+- **GitHub Actions** ejecuta en cada push a `main`: lint, tests de Python y `dbt build` con un PostgreSQL efímero como *service container*, y la validación de los DAGs de Airflow.
 
 ## Estructura
 
 ```
-├── main.py                     # orquesta el flujo ETL (pronóstico o backfill)
+├── main.py                     # flujo ETL (pronóstico o backfill), también usado por Airflow
+├── airflow/
+│   ├── Dockerfile              # Airflow + dependencias del pipeline + dbt
+│   └── dags/weather_pipeline.py
 ├── src/
 │   ├── extract.py
 │   ├── transform.py
 │   ├── load.py
 │   ├── schemas.py              # contrato de datos (Pydantic)
+│   ├── alerts.py               # alertas por Telegram
 │   └── utils.py
 ├── sql/init_db.sql             # modelo dimensional
 ├── analytics/                  # proyecto dbt

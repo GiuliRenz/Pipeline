@@ -12,6 +12,7 @@ services:
     volumes:
       - ./sql/init_db.sql:/docker-entrypoint-initdb.d/01_init_db.sql
       - ./sql/init_metabase.sql:/docker-entrypoint-initdb.d/02_init_metabase.sql
+      - ./sql/init_airflow.sql:/docker-entrypoint-initdb.d/03_init_airflow.sql
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d weather_db"]
@@ -39,5 +40,41 @@ services:
     ports:
       - "3000:3000"
 
+  airflow:
+    build: ./airflow
+    image: weather-airflow:3.3.2
+    container_name: airflow
+    restart: unless-stopped
+    # Modo standalone: scheduler, API/UI y procesador de DAGs en un solo contenedor.
+    # Suficiente para un entorno local; en producción cada componente va por separado.
+    command: standalone
+    # Mismo UID que tu usuario: los archivos que escribe en el proyecto quedan a tu nombre
+    user: "${AIRFLOW_UID:-1000}:0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow_password@postgres:5432/airflow
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/pipeline/airflow/dags
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      # Sin login en la UI: solo aceptable en un entorno local
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
+      PYTHONPATH: /opt/airflow/pipeline
+      # Conexión del pipeline y de dbt (dentro de la red de Docker el host es "postgres")
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: weather_db
+      DB_USER: postgres
+      DB_PASSWORD: postgres_password
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_CHAT_ID: ${TELEGRAM_CHAT_ID:-}
+    volumes:
+      - ./:/opt/airflow/pipeline
+      - airflow_logs:/opt/airflow/logs
+    ports:
+      - "8080:8080"
+
 volumes:
   postgres_data:
+  airflow_logs:
